@@ -1,13 +1,12 @@
-#include <iostream>
-#include <iomanip>
+#include <csignal>
 
-#include <cryptopp/aes.h>
 #include <cryptopp/hex.h>
 
 #include "PaddingOracle.hpp"
 
 PaddingOracle::PaddingOracle(const std::string &url) :
-	url(url)
+	url(url),
+	smphr(0)
 {
 
 }
@@ -18,7 +17,7 @@ std::string PaddingOracle::get_cyphertext()
 	return r.text;
 }
 
-void PaddingOracle::attack(const std::string &cyphertext)
+std::string PaddingOracle::attack(const std::string &cyphertext)
 {
 	std::vector<std::string> blocks = cypher_to_blocks(cyphertext);
 	
@@ -30,18 +29,17 @@ void PaddingOracle::attack(const std::string &cyphertext)
 	for(unsigned b = block_cnt - 1; b > 0; b--){
 		std::string plainblock = decrypt_block(blocks[b], blocks[b - 1]);
 
-		// if(b == block_cnt - 1){
-		// 	/* If first block, remove padding */
-		// 	unsigned len = plainblock.size();
-		// 	unsigned padding = plainblock[len - 1];
-		// 	plainblock.resize(len - padding + 1);
-		// 	plainblock += '\0';
-		// }
+		if(b == block_cnt - 1){
+			/* If first block, remove padding */
+			unsigned len = plainblock.size();
+			unsigned padding = plainblock[len - 1];
+			plainblock.resize(len - padding);
+			plainblock += '\0';
+		}
 
-		std::cout << "Inserting" << std::endl;
 		plaintext = plainblock + plaintext;
-		std::cout << plaintext << std::endl;
 	}
+	return plaintext;
 }
 
 std::vector<std::string> PaddingOracle::cypher_to_blocks(const std::string &cyphertext)
@@ -90,8 +88,6 @@ std::string PaddingOracle::decrypt_block(const std::string &c2, const std::strin
 			}
 		}
 
-		std::cout << "Byte " << n << std::endl;
-
 		if(!decrypted){
 			if(passed)
 				guessed_c1 = c1d[n];
@@ -107,7 +103,7 @@ std::string PaddingOracle::decrypt_block(const std::string &c2, const std::strin
 		/* P2 = I2 ^ C1 */
 		p2[n] = i2[n] ^ c1d[n];
 
-		std::cout << (unsigned)p2[n] << std::endl;
+		smphr.release();
 
 		/* Optimize: pass the real padding */
 		if(n == CryptoPP::AES::BLOCKSIZE - 1 && p2[n] <= 0x10){
@@ -116,19 +112,17 @@ std::string PaddingOracle::decrypt_block(const std::string &c2, const std::strin
 			for(int p = CryptoPP::AES::BLOCKSIZE - guessed - 1; p >= n; p--){
 				p2[p] = real_padding;
 				i2[p] = c1d[p] ^ p2[p];
-				std::cout << (unsigned)p2[p] << std::endl;
 			}
 			guessed = real_padding;
+			smphr.release(real_padding - 1);
 		}
 
 		/* Set the next padding */
 		unsigned next = guessed + 1;
 
 		/* Set the guess from now until the next padding value */
-		for(int g = CryptoPP::AES::BLOCKSIZE - 1; g >= n; g--){
-			std::cout << "g = " << g << std::endl;
+		for(int g = CryptoPP::AES::BLOCKSIZE - 1; g >= n; g--)
 			set_guess(&guess[g*2], i2[g] ^ next);
-		}
 	}
 
 	return p2;
@@ -152,9 +146,7 @@ void PaddingOracle::set_guess(char *guess, unsigned value)
 bool PaddingOracle::query(const std::string &cyphertext)
 {
 	std::string full_url = url+cyphertext;
-	// std::cout << "Trying " << full_url;
 	cpr::Response r = cpr::Get(cpr::Url{full_url});
-	// std::cout << ": " << r.status_code << std::endl;
 	return (r.status_code == cpr::status::HTTP_NOT_FOUND);
 }
 
@@ -174,4 +166,9 @@ std::string PaddingOracle::decode_block(const std::string &block)
 		size
 	);
 	return decoded;
+}
+
+void PaddingOracle::wait_progress()
+{
+	smphr.acquire();
 }
