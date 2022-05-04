@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
 	PaddingOracle po(url);
 	std::string cyphertext = po.get_cyphertext();
 
-	std::cout << "Cyphertext:  " << cyphertext << std::endl;
+	std::cout << "Cyphertext:    " << cyphertext << std::endl;
 	unsigned barlen = cyphertext.length() - 2 * CryptoPP::AES::BLOCKSIZE;
 
 	print_progress(0, barlen);
@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
 	std::future<void> progress = std::async(
 		[&] {
 			unsigned bytes = 0;
-			while(++bytes < barlen){
+			while(++bytes <= barlen/2){
 				po.wait_progress();
 				print_progress(bytes, barlen);
 			}
@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
 	std::string plaintext = worker.get();
 	progress.wait();
 
-	std::cout << "Plaintext: " << plaintext << std::endl;
+	std::cout << "\nPlaintext:      " << plaintext << std::endl;
 
 	return EXIT_SUCCESS;
 }
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
 void print_progress(unsigned decrypted, unsigned total)
 {
 	std::cout << 
-		"\rDecrypted:                          " << 
+		"\rDecrypted:                            " << 
 		std::setw(3) << 
 		std::setfill(' ') <<
 		decrypted << "/" <<
@@ -87,7 +87,7 @@ void print_progress(unsigned decrypted, unsigned total)
 		" [" <<
 		std::setw(total - decrypted*2) << 
 		std::setfill(' ') << 
-		"<<" << 
+		(total == decrypted*2 ? "==" : "<<") << 
 		std::setw(decrypted*2 + 1) <<
 		std::setfill('=') <<
 		"]" << std::flush;
